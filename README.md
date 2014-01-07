@@ -7,18 +7,41 @@ Usage is pretty simple, simply define your structure with the "validate" struct 
 package main
 
 import (
-	"github.com/wirepair/validator"
-	"net/http"
 	"fmt"
+	"github.com/wirepair/validator"
 	"html/template"
+	"net/http"
 )
 
+const (
+	userForm = `<html>
+	<head></head>
+	<body><form action="/form" method="POST">
+		Name: <input type="text" name="name" value="bob"></input><br>
+		Age: <input type="text" name="age" value=""></input><br>
+		State: <input type="text" name="state" value="AZ"></input><br>
+		<input type="submit" value="Submit"></input>
+	</form>
+	</body>`
+
+	userPage = `<html>
+	<head></head>
+	<body>
+		Name: {{.Name}}<br>
+		Age: {{.Age}}<br>
+		State: {{.State}}<br>
+		Internal: {{.Internal}}<br>
+		Error: {{.Error}}<br>
+	</body>`
+)
 
 type User struct {
 	// be careful with invalid escapes in regexes! \w will fail (\\w is correct) and regex field will be ignored!
-	Name  string `validate:"name" regex: "find,^(\\w*)$"`
-	Age   int    `validate:"age,optional"`
-	State string `validate:"state,len(2:2)" regex:"find,^([A-Za-z]*)$"`
+	Name     string `validate:"name" regex: "find,^(\\w*)$"`
+	Age      int    `validate:"age,optional"`
+	State    string `validate:"state,len(2:2)" regex:"find,^([A-Za-z]*)$"`
+	Internal string
+	Error    string
 }
 
 // call parse form first, then validate and use
@@ -27,28 +50,30 @@ func HttpFormHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error parsing form values!", http.StatusInternalServerError)
 		return
 	}
-	
+
 	user := &User{}
-	validator.VerifiedAssign(r.FormValues, user)
-	templates.Execute()
+	if err := validator.VerifiedAssign(r.Form, user); err != nil {
+		user.Error = err.Error()
+	}
+	user.Internal = "this is was ignored by VerifiedAssign..."
+	tmpl, err := template.New("user").Parse(userPage)
+	// Error checking elided
+	err = tmpl.Execute(w, user)
+	if err != nil {
+		http.Error(w, "Error executing template", http.StatusInternalServerError)
+	}
 }
 
 func FormPage(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, `<html>
-	<head></head>
-	<body><form action="/form" method="POST">
-		Name: <input type="text" name="name" value="bob"></input><br>
-		Age: <input type="text" name="age" value="bob"></input><br>
-		State: <input type="text" name="state" value="AZ"></input><br>
-	</form>
-	</body>`)
+	fmt.Fprintf(w, userForm)
 }
 
 func main() {
-	http.HandlerFunc("/", FormPage)
-	http.HandlerFunc("/form", HttpHandler)
+	http.HandleFunc("/", FormPage)
+	http.HandleFunc("/form", HttpFormHandler)
 	http.ListenAndServe(":8080", nil)
 }
+
 ```
 
 === validate tag functions ===
