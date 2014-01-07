@@ -58,9 +58,10 @@ func HttpFormHandler(w http.ResponseWriter, r *http.Request) {
 	if err := validator.VerifiedAssign(r.Form, user); err != nil {
 		user.Error = err.Error()
 	}
+	// Note you really shouldn't do this. If you get validation errors, throw it away and ask the user again.
 	user.Internal = "this is was ignored by VerifiedAssign..."
 	tmpl, err := template.New("user").Parse(userPage)
-	// Error checking elided
+
 	err = tmpl.Execute(w, user)
 	if err != nil {
 		http.Error(w, "Error executing template", http.StatusInternalServerError)
@@ -123,11 +124,11 @@ type BadUnexportedUser struct {
 
 #### validate tag functions
 Currently only two validation functions exist:
-- len(min,max) : Will validate strings (or each individual slice of type string) is > minimum length and < maximum length.
-- range(min,max) : Will validate Int, Uint, Float's fall with in a specified range. 
+- len(min,max)  This will validate strings (or each individual slice of type string) is > minimum length and < maximum length.
+- range(min,max) This will validate that Int, Uint and Floats fall with in a specified range. 
 
 ```Go
-// Example structure which takes the "name" parameter and validates it is > 4 characters and < 20 characters
+// Example structure which takes the "name" parameter and validates it is &gt; 4 characters and &lt; 20 characters
 // Age is 'optional' as in, if it doesn't exist in the original map as a key, we can safely disregard it. 
 // If it does exist, it will still be validated.
 // Balance will be assigned as a float provided it parses correctly into a float value. if not it will fail and
@@ -139,14 +140,14 @@ type PersonForm struct {
 }
 ```
 
-=== regex tag functions ===
+#### regex tag functions
 Currently match (calls MatchString) are supported for strings (or each slice of a slice of strings).
 ```Go
 // Example structure which takes the "name" parameter and validates it is > 4 characters and < 20 characters and
 // matches "john doe"
 type RegexForm struct {
-	// be careful with invalid escapes in regexes! \s will fail and regex field will be ignored!
-	FirstName string `validate:"name,len(4:20)" regex:"match,^(john\\sdoe)$"`
-	LastName string `validate:"name,len(4:20)" regex:"match,^(john\\sdoe)$"`
+	FirstName string `validate:"name,len(4:20)" regex:"match,^(john)$"`
+	// same as above, but don't need the match, part.
+	LastName string `validate:"name,len(4:20)" regex:"^(doe)$"`
 }
 ```
