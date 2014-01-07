@@ -151,3 +151,7 @@ type RegexForm struct {
 	LastName string `validate:"name,len(4:20)" regex:"^(doe)$"`
 }
 ```
+
+
+#### more examples?
+See the unit tests!
