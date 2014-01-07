@@ -1,7 +1,6 @@
 package validator
 
 import (
-	//"fmt"
 	"net/url"
 	"testing"
 )
@@ -10,8 +9,6 @@ type SomeForm struct {
 	// by default fields are required, to make optional use optional directive.
 	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 255 chars
 	Age  int    `validate:"age,range(1:10)"` // takes "age" http param and validates it's value is between 1 and 10.
-
-	//Birth string `validate:"birth,,optional"` // not required.
 }
 
 func TestVerifiedAssign(t *testing.T) {
@@ -44,7 +41,7 @@ type CachedForm2 struct {
 }
 
 func TestCache(t *testing.T) {
-	val := makeSimpleMap()
+	val, _ := url.ParseQuery("name=john&age=3")
 	cache1 := &CachedForm{}
 	cache2 := &CachedForm{}
 	cache3 := &CachedForm2{}
@@ -52,19 +49,23 @@ func TestCache(t *testing.T) {
 
 	err := VerifiedAssign(val, cache1)
 	if err != nil {
-		t.Fatalf("error parsing: %v\n", err)
+		t.Fatalf("error parsing on good input cache1: %v\n", err)
 	}
 
-	VerifiedAssign(val, cache2)
+	err = VerifiedAssign(val, cache2)
+	if err != nil {
+		t.Fatalf("error parsing on good input cache2: %v\n", err)
+	}
 
+	val, _ = url.ParseQuery("name=john&age=23")
 	err = VerifiedAssign(val, cache3)
 	if err == nil {
-		t.Fatalf("error: bad input passed valiation.\n")
+		t.Fatalf("error: bad input passed validation on cache3.\n")
 	}
 
 	err = VerifiedAssign(val, cache4)
 	if err == nil {
-		t.Fatalf("error: bad input passed valiation.\n")
+		t.Fatalf("error: bad input passed validation on cache4.\n")
 	}
 }
 
@@ -98,20 +99,20 @@ func TestUrls(t *testing.T) {
 	st = &SomeForm{}
 	err = VerifiedAssign(blah, st)
 	if err == nil {
-		t.Fatalf("Error name (over len) passed validation\n")
+		t.Fatalf("Error name (> len) passed validation\n")
 	}
 
 	blah, _ = url.ParseQuery("name=AAA&age=11")
 	st = &SomeForm{}
 	err = VerifiedAssign(blah, st)
 	if err == nil {
-		t.Fatalf("Error age (over range) passed validation\n")
+		t.Fatalf("Error age (> range) passed validation\n")
 	}
 }
 
 type RegexForm struct {
 	// be careful with invalid escapes in regexes! \s will fail and regex field will be ignored!
-	Name string `validate:"name,len(4:20)" regex:"find,^(john\\sdoe)$"`
+	Name string `validate:"name,len(4:20)" regex:"^(john\\sdoe)$"`
 }
 
 func TestRegex(t *testing.T) {
@@ -126,7 +127,7 @@ func TestRegex(t *testing.T) {
 	st = &RegexForm{}
 	err = VerifiedAssign(blah, st)
 	if err == nil {
-		t.Fatal("Error validation passed regex on bad value: \n")
+		t.Fatal("Error validation passed regex on bad value.\n")
 	}
 
 	// make sure len validation works along side regex
@@ -139,9 +140,9 @@ func TestRegex(t *testing.T) {
 }
 
 type User struct {
-	Name  string `validate:"name" regex: "find,^(\\w*)$"`
+	Name  string `validate:"name" regex:"^[a-z]*$"`
 	Age   int    `validate:"age,optional"`
-	State string `validate:"state,len(2:2)" regex:"find,^([A-Za-z]*)$"`
+	State string `validate:"state,len(2:2)" regex:"^[A-Za-z]*$"`
 }
 
 func TestDocExamples(t *testing.T) {
@@ -160,6 +161,58 @@ func TestDocExamples(t *testing.T) {
 	}
 }
 
+type SliceyUser struct {
+	Name []string `validate:"name" regex:"^[a-z]*$"`
+	Age  []int    `validate:"age,range(1:10)"`
+}
+
+func TestSliceValidation(t *testing.T) {
+	params, _ := url.ParseQuery("name=someone&name=else&name=zonks&age=1&age=2")
+	st := &SliceyUser{}
+
+	err := VerifiedAssign(params, st)
+	if err != nil {
+		t.Fatalf("error: user did not parse properly: %v\n", err)
+	}
+
+	if st.Name[0] != "someone" && st.Name[1] != "zonks" {
+		t.Fatalf("names set incorrectly.")
+	}
+
+	params, _ = url.ParseQuery("name=aaaa&name=1234&name=zonks&age=1&age=2")
+	st = &SliceyUser{}
+	err = VerifiedAssign(params, st)
+
+	if err == nil {
+		t.Fatalf("error: name[1] should have failed validation\n")
+	}
+
+	params, _ = url.ParseQuery("name=aaaa&name=bbb&name=zonks&age=1&age=24")
+	st = &SliceyUser{}
+	err = VerifiedAssign(params, st)
+
+	if err == nil {
+		t.Fatalf("error: age[1] should have failed validation\n")
+	}
+}
+
+type RequiredUser struct {
+	Name  string `validate:"name" regex:"^[a-z]*$"`
+	Age   int    `validate:"age"`
+	State string `validate:"state,len(2:2)" regex:"^[A-Za-z]*$"`
+}
+
+func TestRequired(t *testing.T) {
+	params, _ := url.ParseQuery("name=someone&state=AZ")
+	st := &RequiredUser{}
+
+	err := VerifiedAssign(params, st)
+	if err == nil {
+		t.Fatalf("error: age didn't exist in input and is required!\n")
+	}
+}
+
+//HELPERS
 func makeSimpleMap() map[string][]string {
 	val := make(map[string][]string, 2)
 	strVals := []string{"John", "Doe"}

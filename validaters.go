@@ -32,13 +32,13 @@ import (
 )
 
 type ValidatorTypeError struct {
-	Value string // description of Value - "bool", "array", "number -5"
+	Func  string // description of function
 	Param string // the Parameter name
 	Type  string
 }
 
 func (e *ValidatorTypeError) Error() string {
-	return "validate: error " + e.Value + " function for " + e.Param + " is invalid for " + e.Type
+	return "validate: error " + e.Func + " function for " + e.Param + " is invalid for " + e.Type
 }
 
 type ValidatorFuncError struct {
@@ -57,7 +57,7 @@ type ValidationError struct {
 }
 
 func (e *ValidationError) Error() string {
-	return "validate: error value " + e.Param + " failed validation with value " + e.Value
+	return "validate: error param " + e.Param + " failed validation with value " + e.Value
 }
 
 type Validater interface {
@@ -93,17 +93,17 @@ func NewValidation(tag map[string]string, typ reflect.Type) (*Validation, error)
 }
 
 const (
-	regexFind = iota
-	regexMatch
+	regexMatch = iota
+	regexFind
 )
 
 func parseRegex(reg string, validation *Validation, typ reflect.Type) error {
-	// allow either matching or finding. default is FindString
-	find := regexFind
+	// allow either matching or finding. default is MatchString, probably don't need find.
+	find := regexMatch
 	if strings.HasPrefix(reg, "find,") {
+		find = regexFind
 		reg = reg[5:]
 	} else if strings.HasPrefix(reg, "match,") {
-		find = regexMatch
 		reg = reg[6:]
 	}
 
@@ -131,7 +131,7 @@ func parseValidate(values string, validation *Validation, typ reflect.Type) erro
 			validation.Optional = true
 		} else if strings.HasPrefix(directives[i], "range(") && strings.HasSuffix(directives[i], ")") {
 			if k == reflect.String {
-				return &ValidatorTypeError{"range", validation.Param, typ.Kind().String()}
+				return &ValidatorTypeError{Func: "range", Param: validation.Param, Type: typ.Kind().String()}
 			}
 
 			if validator, err := newRangeValidator(directives[i], "range", typ); err != nil {
@@ -141,7 +141,7 @@ func parseValidate(values string, validation *Validation, typ reflect.Type) erro
 			}
 		} else if strings.HasPrefix(directives[i], "len(") && strings.HasSuffix(directives[i], ")") {
 			if k != reflect.String {
-				return &ValidatorTypeError{"len", validation.Param, typ.Kind().String()}
+				return &ValidatorTypeError{Func: "len", Param: validation.Param, Type: typ.Kind().String()}
 			}
 
 			if validator, err := newLenValidator(directives[i], "len", typ); err != nil {
@@ -163,14 +163,14 @@ func newLenValidator(input, fname string, typ reflect.Type) (Validater, error) {
 	}
 	nmin, err := strconv.Atoi(min)
 	if err != nil {
-		return nil, &ValidatorFuncError{min, typ.Kind().String(), fname}
+		return nil, &ValidatorFuncError{Value: min, Type: typ.Kind().String(), Name: fname}
 	}
 	nmax, err := strconv.Atoi(max)
 	if err != nil {
-		return nil, &ValidatorFuncError{max, typ.Kind().String(), fname}
+		return nil, &ValidatorFuncError{Value: max, Type: typ.Kind().String(), Name: fname}
 	}
 	if nmax < nmin {
-		return nil, &ValidatorFuncError{max + "<" + min, typ.Kind().String(), fname}
+		return nil, &ValidatorFuncError{Value: max + "<" + min, Type: typ.Kind().String(), Name: fname}
 	}
 
 	return &LenValidate{Min: nmin, Max: nmax}, nil
@@ -213,14 +213,14 @@ func newRangeValidator(input, fname string, typ reflect.Type) (Validater, error)
 func intFuncArguments(min, max, fname string) (int64, int64, error) {
 	nmin, err := strconv.ParseInt(min, 10, 64)
 	if err != nil {
-		return -1, -1, &ValidatorFuncError{min, reflect.Int.String(), fname}
+		return -1, -1, &ValidatorFuncError{Value: min, Type: reflect.Int.String(), Name: fname}
 	}
 	nmax, err := strconv.ParseInt(max, 10, 64)
 	if err != nil {
-		return -1, -1, &ValidatorFuncError{max, reflect.Int.String(), fname}
+		return -1, -1, &ValidatorFuncError{Value: max, Type: reflect.Int.String(), Name: fname}
 	}
 	if nmax < nmin {
-		return -1, -1, &ValidatorFuncError{max + "<" + min, reflect.Int.String(), fname}
+		return -1, -1, &ValidatorFuncError{Value: max + "<" + min, Type: reflect.Int.String(), Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -228,16 +228,16 @@ func intFuncArguments(min, max, fname string) (int64, int64, error) {
 func uintFuncArguments(min, max, fname string) (uint64, uint64, error) {
 	nmin, err := strconv.ParseUint(min, 10, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{min, reflect.Uint.String(), fname}
+		return 0, 0, &ValidatorFuncError{Value: min, Type: reflect.Uint.String(), Name: fname}
 	}
 
 	nmax, err := strconv.ParseUint(max, 10, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{max, reflect.Uint.String(), fname}
+		return 0, 0, &ValidatorFuncError{Value: min, Type: reflect.Uint.String(), Name: fname}
 	}
 
 	if nmax < nmin {
-		return 0, 0, &ValidatorFuncError{max + "<" + min, reflect.Uint.String(), fname}
+		return 0, 0, &ValidatorFuncError{Value: max + "<" + min, Type: reflect.Uint.String(), Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -245,14 +245,14 @@ func uintFuncArguments(min, max, fname string) (uint64, uint64, error) {
 func floatFuncArguments(min, max, fname string) (float64, float64, error) {
 	nmin, err := strconv.ParseFloat(min, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{min, reflect.Float64.String(), fname}
+		return 0, 0, &ValidatorFuncError{Value: min, Type: reflect.Float64.String(), Name: fname}
 	}
 	nmax, err := strconv.ParseFloat(max, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{max, reflect.Float64.String(), fname}
+		return 0, 0, &ValidatorFuncError{Value: max, Type: reflect.Float64.String(), Name: fname}
 	}
 	if nmax < nmin {
-		return 0, 0, &ValidatorFuncError{max + "<" + min, reflect.Float64.String(), fname}
+		return 0, 0, &ValidatorFuncError{Value: max + "<" + min, Type: reflect.Float64.String(), Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -275,7 +275,7 @@ func (r *RangeIntValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.Int()
 	if val < r.Min || val > r.Max {
-		return &ValidationError{param, strconv.FormatInt(val, 10)}
+		return &ValidationError{Param: param, Value: strconv.FormatInt(val, 10)}
 	}
 	return nil
 }
@@ -289,7 +289,7 @@ func (r *RangeUintValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.Uint()
 	if val < r.Min || val > r.Max {
-		return &ValidationError{param, strconv.FormatUint(val, 10)}
+		return &ValidationError{Param: param, Value: strconv.FormatUint(val, 10)}
 	}
 	return nil
 }
@@ -303,7 +303,7 @@ func (r *RangeFloatValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.Float()
 	if val < r.Min || val > r.Max {
-		return &ValidationError{param, strconv.FormatFloat(val, 'e', 5, 64)}
+		return &ValidationError{Param: param, Value: strconv.FormatFloat(val, 'e', 5, 64)}
 	}
 	return nil
 }
@@ -319,7 +319,7 @@ func (r *LenValidate) Validate(param string, value interface{}) error {
 	l := len(val)
 
 	if l < r.Min || l > r.Max {
-		return &ValidationError{param, val}
+		return &ValidationError{Param: param, Value: val}
 	}
 	return nil
 }
@@ -330,16 +330,17 @@ type RegexValidate struct {
 }
 
 func (r *RegexValidate) Validate(param string, value interface{}) error {
-	fmt.Printf("In Regex Validate\n")
 	v := reflect.ValueOf(value)
 	val := v.String()
-	if r.MatchType == regexFind {
-		if found := r.Pattern.FindString(val); found == "" {
-			return &ValidationError{param, val}
-		}
-	} else if r.MatchType == regexMatch {
+
+	if r.MatchType == regexMatch {
 		if matched := r.Pattern.MatchString(val); !matched {
-			return &ValidationError{param, val}
+			return &ValidationError{Param: param, Value: val}
+		}
+		// probably don't need regexFind
+	} else if r.MatchType == regexFind {
+		if found := r.Pattern.FindString(val); found == "" {
+			return &ValidationError{Param: param, Value: val}
 		}
 	}
 

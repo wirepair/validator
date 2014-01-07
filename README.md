@@ -1,8 +1,11 @@
-= validator =
+# validator 
 This library is for automatically assigning HTTP form values or a map[string][]string to a pre-defined structure. It also allows you to validate the data prior to allowing assignment to occur. It fails hard, if any field is found to fail validation, an error is immediately returned. 
 
-== Example == 
-Usage is pretty simple, simply define your structure with the "validate" struct tag along with the parameter name and then a validation function.
+### installation
+go get github.com/wirepair/validator
+
+### example  
+Usage is pretty simple, simply define your structure with the "validate" struct tag along with the parameter name and then a validation function if you want it.
 ```Go
 package main
 
@@ -37,9 +40,9 @@ const (
 
 type User struct {
 	// be careful with invalid escapes in regexes! \w will fail (\\w is correct) and regex field will be ignored!
-	Name     string `validate:"name" regex: "find,^(\\w*)$"`
+	Name     string `validate:"name" regex:"^[a-z]*$"`
 	Age      int    `validate:"age,optional"`
-	State    string `validate:"state,len(2:2)" regex:"find,^([A-Za-z]*)$"`
+	State    string `validate:"state,len(2:2)" regex:"^[A-Za-z]*$"`
 	Internal string
 	Error    string
 }
@@ -73,10 +76,52 @@ func main() {
 	http.HandleFunc("/form", HttpFormHandler)
 	http.ListenAndServe(":8080", nil)
 }
-
 ```
 
-=== validate tag functions ===
+## gotchas
+Struct tags are very unforgiving, if you get any part of your struct tag definition incorrect, the value will most likely be ignored. What this means is you 'think' you will pass validation, but in reality your definition was incorrect so the validator could not run. Unfortunately, as far as I can tell there is no way to determine if there
+is an error in parsing struct tags so here are some examples to watch out for:
+```Go
+type BadUser struct {
+	// BAD there is a space between regex: and the value
+	Name     string `validate:"name" regex: "^[a-z]*$"`
+}
+
+type GoodUser struct {
+	// GOOD tags are aligned properly with double quotes, no spacing and the correct specifiers used.
+	Name     string `validate:"name" regex:"^[a-z]*$"`
+}
+
+type BadRegexUser struct {
+	// BAD there the regex contains and incorrect escape sequence and the regex will be ignored!
+	Name     string `validate:"name" regex:"^\w*$"`	
+}
+
+type GoodRegexUser struct {
+	// GOOD the \w specifier is properly escaped.
+	Name     string `validate:"name" regex:"^\\w*$"`	
+}
+```
+
+Other things of note, unexported structure fields will not work.
+```Go
+type BadUnexportedUser struct {
+	// BAD, name is not exported so it is not possible with reflection to set the unexported name field.
+	name     string `validate:"name" regex: "^[a-z]*$"`
+}
+```
+
+If you don't want a value set, just don't use any struct tags on the field, this is perfectly ok:
+```Go
+type BadUnexportedUser struct {
+	// BAD, name is not exported so it is not possible with reflection to set the unexported name field.
+	IwantThis         string `validate:"this" regex: "^[a-z]*$"`
+	IdontWantThis     string 
+	AndNotThis        string
+}
+```
+
+#### validate tag functions
 Currently only two validation functions exist:
 - len(min,max) : Will validate strings (or each individual slice of type string) is > minimum length and < maximum length.
 - range(min,max) : Will validate Int, Uint, Float's fall with in a specified range. 
@@ -95,12 +140,13 @@ type PersonForm struct {
 ```
 
 === regex tag functions ===
-Currently only find (Internally calls FindString on the input) and match (calls MatchString) are supported for strings (or each slice of a slice of strings).
+Currently match (calls MatchString) are supported for strings (or each slice of a slice of strings).
 ```Go
 // Example structure which takes the "name" parameter and validates it is > 4 characters and < 20 characters and
 // matches "john doe"
 type RegexForm struct {
 	// be careful with invalid escapes in regexes! \s will fail and regex field will be ignored!
-	Name string `validate:"name,len(4:20)" regex:"find,^(john\\sdoe)$"`
+	FirstName string `validate:"name,len(4:20)" regex:"match,^(john\\sdoe)$"`
+	LastName string `validate:"name,len(4:20)" regex:"match,^(john\\sdoe)$"`
 }
 ```

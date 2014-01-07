@@ -22,21 +22,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+// This library is for automatically assigning HTTP form values or a map[string][]string
+// to a pre-defined structure. It also allows you to validate the data prior to allowing
+// assignment to occur. If any field is found to fail validation, an error is immediately
+// returned and further processing is stopped.
 package validator
 
 import (
-	//"errors"
-	//"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
 	"sync"
-	//"strings"
 )
 
 type ValidateTypeError struct {
 	Value string       // description of value - "bool", "array", "number -5"
-	Param string       // the parameer name
+	Param string       // the parameter name
 	Type  reflect.Type // type of Go value it could not be assigned to
 }
 
@@ -61,15 +62,15 @@ type cache struct {
 
 var fieldCache cache // for caching field look ups.
 
+// VerifiedAssign iterates over all parameters and assigns them to the passed in structure,
+// alternatively validating the input in various ways.
 func VerifiedAssign(params map[string][]string, v interface{}) error {
 	fields, err := getFields(v)
 	if err != nil {
 		return err
 	}
-	if err := assign(params, fields, v); err != nil {
-		v = nil // we had an error set v to nil
-	}
-	return err
+
+	return assign(params, fields, v)
 }
 
 func getFields(v interface{}) ([]field, error) {
@@ -114,6 +115,8 @@ func getFields(v interface{}) ([]field, error) {
 	return fields, nil
 }
 
+// assign validates fields are settable, parameters aren't empty and that fields set
+// as optional are validated (unless empty, then disregarded).
 func assign(params map[string][]string, fields []field, v interface{}) (err error) {
 	st := reflect.ValueOf(v).Elem()
 
@@ -133,7 +136,7 @@ func assign(params map[string][]string, fields []field, v interface{}) (err erro
 		// check if the parameter is required or not.
 		if size == 0 && f.optional == false {
 			return fmt.Errorf("validate: error parameter %s does not exist in input.\n", f.param)
-		} else if size == 0 && f.optional == true {
+		} else if (size == 0 || size == 1 && values[0] == "") && f.optional == true {
 			continue
 		}
 
