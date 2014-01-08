@@ -108,7 +108,7 @@ Other things of note, unexported structure fields will not work.
 ```Go
 type BadUnexportedUser struct {
 	// BAD, name is not exported so it is not possible with reflection to set the unexported name field.
-	name     string `validate:"name" regex: "^[a-z]*$"`
+	name     string `validate:"name" regex:"^[a-z]*$"`
 }
 ```
 
@@ -116,7 +116,7 @@ If you don't want a value set, just don't use any struct tags on the field, this
 ```Go
 type BadUnexportedUser struct {
 	// BAD, name is not exported so it is not possible with reflection to set the unexported name field.
-	IwantThis         string `validate:"this" regex: "^[a-z]*$"`
+	IwantThis         string `validate:"this" regex:"^[a-z]*$"`
 	IdontWantThis     string 
 	AndNotThis        string
 }
