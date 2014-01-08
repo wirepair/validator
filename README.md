@@ -114,8 +114,7 @@ type BadUnexportedUser struct {
 
 If you don't want a value set, just don't use any struct tags on the field, this is perfectly ok:
 ```Go
-type BadUnexportedUser struct {
-	// BAD, name is not exported so it is not possible with reflection to set the unexported name field.
+type UnVerifiedFieldsUser struct {
 	IwantThis         string `validate:"this" regex:"^[a-z]*$"`
 	IdontWantThis     string 
 	AndNotThis        string
