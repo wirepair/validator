@@ -25,7 +25,9 @@ THE SOFTWARE.
 // This library is for automatically assigning HTTP form values or a map[string][]string
 // to a pre-defined structure. It also allows you to validate the data prior to allowing
 // assignment to occur. If any field is found to fail validation, an error is immediately
-// returned and further processing is stopped.
+// returned and further processing is stopped. Additionally, you may supply your own
+// functions by calling Add. For more information and examples see:
+// https://github.com/wirepair/validator/
 package validator
 
 import (
@@ -36,11 +38,12 @@ import (
 )
 
 type ValidateTypeError struct {
-	Value string       // description of value - "bool", "array", "number -5"
+	Value string       // description of value that caused the error
 	Param string       // the parameter name
 	Type  reflect.Type // type of Go value it could not be assigned to
 }
 
+// Returned when validator is unable to get the proper type from the supplied map of parameters and values.
 func (e *ValidateTypeError) Error() string {
 	return "validate: error parsing parameter " + e.Param + " with value " + e.Value + " into Go value of type " + e.Type.String()
 }
@@ -52,7 +55,7 @@ type field struct {
 	typ        reflect.Type
 	optional   bool
 	index      int
-	validation *Validation
+	validators []Validater
 }
 
 type cache struct {
@@ -62,8 +65,8 @@ type cache struct {
 
 var fieldCache cache // for caching field look ups.
 
-// VerifiedAssign iterates over all parameters and assigns them to the passed in structure,
-// alternatively validating the input in various ways.
+// VerifiedAssign iterates over input map keys and assigns the value to the passed in structure (v),
+// alternatively validating the input.
 func VerifiedAssign(params map[string][]string, v interface{}) error {
 	fields, err := getFields(v)
 	if err != nil {
@@ -73,6 +76,11 @@ func VerifiedAssign(params map[string][]string, v interface{}) error {
 	return assign(params, fields, v)
 }
 
+// iterates over each field of the structure and assigns various directives on how to
+// parse, validate and process the value to be assigned to that field.
+// for performance reasons we also store field lookups in a synchronized cache so
+// if we get the same struct many times we only have to analyze the structtags a single
+// time.
 func getFields(v interface{}) ([]field, error) {
 	var err error
 	cacheKey := reflect.TypeOf(v)
@@ -92,19 +100,16 @@ func getFields(v interface{}) ([]field, error) {
 	fields := make([]field, st.NumField())
 
 	for i := 0; i < st.NumField(); i++ {
-		tags := make(map[string]string, 2)
-		tags["regex"] = st.Field(i).Tag.Get("regex")
-		tags["validate"] = st.Field(i).Tag.Get("validate")
 		f := &field{}
 		f.typ = st.Field(i).Type
 		f.name = st.Field(i).Name
 		f.index = i
-		f.validation, err = NewValidation(tags, f.typ)
+
+		// sets param,optional flags and validators.
+		err = setDirectives(st.Field(i).Tag, f)
 		if err != nil {
 			return nil, err
 		}
-		f.param = f.validation.Param
-		f.optional = f.validation.Optional
 		fields[i] = *f
 	}
 
@@ -149,7 +154,7 @@ func assign(params map[string][]string, fields []field, v interface{}) (err erro
 				}
 			}
 		} else {
-			// only take the verify & assign first value.
+			// only take the first verify & assign value.
 			err = verifiedAssign(values[0], &f, settable)
 		}
 		// we got an error assigning a type or array, error out.
@@ -160,12 +165,16 @@ func assign(params map[string][]string, fields []field, v interface{}) (err erro
 	return nil
 }
 
+// verifiedAssign will take the input string, determine it's type via reflection.
+// Then it will run validators against the reflected type to make sure they pass.
+// provided they do, the value will be assigned to the structure.
+// NOTE: we also check for numerical overflows.
 func verifiedAssign(s string, f *field, settable reflect.Value) error {
 
 	switch settable.Kind() {
 	case reflect.String:
 		//fmt.Printf("In string case validators len: %d\n", len(f.validation.Validaters))
-		for _, validater := range f.validation.Validaters {
+		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, s); err != nil {
 				return err
 			}
@@ -177,7 +186,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 			return &ValidateTypeError{f.param, s, settable.Type()}
 		}
 
-		for _, validater := range f.validation.Validaters {
+		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {
 				return err
 			}
@@ -188,7 +197,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 		if err != nil || settable.OverflowUint(n) {
 			return &ValidateTypeError{f.param, s, settable.Type()}
 		}
-		for _, validater := range f.validation.Validaters {
+		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {
 				return err
 			}
@@ -199,7 +208,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 		if err != nil || settable.OverflowFloat(n) {
 			return &ValidateTypeError{f.param, s, settable.Type()}
 		}
-		for _, validater := range f.validation.Validaters {
+		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {
 				return err
 			}
@@ -210,7 +219,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 		if err != nil {
 			return &ValidateTypeError{f.param, s, settable.Type()}
 		}
-		for _, validater := range f.validation.Validaters {
+		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {
 				return err
 			}

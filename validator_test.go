@@ -1,9 +1,60 @@
 package validator
 
 import (
+	"encoding/hex"
 	"net/url"
 	"testing"
 )
+
+func hashCheck(hash string) error {
+	// dumb example that simply sees if decodes properly.
+	hashBytes := make([]byte, hex.DecodedLen(len(hash)))
+	if _, err := hex.Decode(hashBytes, []byte(hash)); err != nil {
+		return err
+	}
+	return nil
+}
+
+type HashForm struct {
+	Hash string `validate:"h,hash"` // takes "h" http param and validates it decodes as valid hex
+}
+
+type HashFormTwo struct {
+	Hash string `validate:"h,hash,len(32:32)"`
+}
+
+func TestCustomFunctions(t *testing.T) {
+	// must call add first!
+	Add("hash", hashCheck)
+	hf := &HashForm{}
+	val, _ := url.ParseQuery("h=d83582b40325d7a3d723f05307b7534a")
+	err := VerifiedAssign(val, hf)
+	if err != nil {
+		t.Fatalf("Error occurred parsing valid hash: %v", err)
+	}
+
+	hf = &HashForm{}
+	val, _ = url.ParseQuery("h=d83582b40325d7a3d723f05307b7534ZZZ")
+	err = VerifiedAssign(val, hf)
+	if err == nil {
+		t.Fatalf("Error invalid hash passed validation\n")
+	}
+
+	// test that our built in functions work along side.
+	hf2 := &HashFormTwo{}
+	val, _ = url.ParseQuery("h=d83582b40325d7a3d723f05307b7534a")
+	err = VerifiedAssign(val, hf2)
+	if err != nil {
+		t.Fatalf("Error occurred parsing valid hash: %v", err)
+	}
+
+	hf2 = &HashFormTwo{}
+	val, _ = url.ParseQuery("h=47503b623d7ffca7cc40fb0fc4ce53269b86f6b3")
+	err = VerifiedAssign(val, hf2)
+	if err == nil {
+		t.Fatalf("Error hash length > 32 but passed validation anyways!\n")
+	}
+}
 
 type SomeForm struct {
 	// by default fields are required, to make optional use optional directive.
@@ -11,7 +62,7 @@ type SomeForm struct {
 	Age  int    `validate:"age,range(1:10)"` // takes "age" http param and validates it's value is between 1 and 10.
 }
 
-func TestVerifiedAssign(t *testing.T) {
+func TestVerifiedAssignMap(t *testing.T) {
 	val := make(map[string][]string, 2)
 	person := &SomeForm{}
 	strVals := []string{"John", "Doe"}
@@ -21,6 +72,120 @@ func TestVerifiedAssign(t *testing.T) {
 	err := VerifiedAssign(val, person)
 	if err != nil {
 		t.Fatalf("Error: %v\n", err)
+	}
+	if person.Name != "John" && person.Age != 1 {
+		t.Fatalf("error invalid values returned: %v", person)
+	}
+}
+
+type BadRegexField struct {
+	Name string `validate:"breg" regex: "^(john)"`
+}
+
+func TestBadField(t *testing.T) {
+	val, _ := url.ParseQuery("breg=john&breg2=john&breg3=john&bfns=john&bfcs=john&age=3")
+
+	breg := &BadRegexField{}
+	err := VerifiedAssign(val, breg)
+	switch err := err.(type) {
+	case *ValidateTagError:
+		// OK
+	case nil:
+		t.Fatalf("Error: space in regex definition passed.\n")
+	default:
+		t.Fatalf("error occurred but not validatetagerror: %v\n", err)
+	}
+}
+
+type BadRegexFieldTwo struct {
+	Name string `validate:"breg2" regex,"^(john)"`
+}
+
+func TestBadRegexFieldTwo(t *testing.T) {
+	val, _ := url.ParseQuery("breg=john&breg2=john&breg3=john&bfns=john&bfcs=john&age=3")
+	breg2 := &BadRegexFieldTwo{}
+	err := VerifiedAssign(val, breg2)
+	switch err := err.(type) {
+	case *ValidateTagError:
+		// OK
+	case nil:
+		t.Fatalf("Error: comma seperator in regex passed.\n")
+	default:
+		t.Fatalf("error occurred but not validatetagerror: %v\n", err)
+	}
+}
+
+type BadRegexFieldThree struct {
+	Name string `validate:"breg3" regex:'^(john)'`
+}
+
+func TestBadRegexFieldThree(t *testing.T) {
+	val, _ := url.ParseQuery("breg=john&breg2=john&breg3=john&bfns=john&bfcs=john&age=3")
+	breg3 := &BadRegexFieldThree{}
+	err := VerifiedAssign(val, breg3)
+	switch err := err.(type) {
+	case *ValidateTagError:
+		// OK
+	case nil:
+		t.Fatalf("Error: single quotes for regex passed.\n")
+	default:
+		t.Fatalf("error occurred but not validatetagerror: %v\n", err)
+	}
+
+}
+
+type BadFieldCommaSeperated struct {
+	Name string `validate:"bfcs",regex:"^(john)"`
+}
+
+func TestBadFieldCommaSeperated(t *testing.T) {
+	val, _ := url.ParseQuery("breg=john&breg2=john&breg3=john&bfns=john&bfcs=john&age=3")
+	bfcs := &BadFieldCommaSeperated{}
+	err := VerifiedAssign(val, bfcs)
+	switch err := err.(type) {
+	case *ValidateTagError:
+		// OK
+	case nil:
+		t.Fatalf("Error: comma seperated tag keys passed.\n")
+	default:
+		t.Fatalf("error occurred but not validatetagerror: %v\n", err)
+	}
+}
+
+type BadFieldInvalidRegexEscape struct {
+	Name string `validate:"bfire",regex:"^(\sjohn)"`
+}
+
+func TestBadFieldInvalidRegexEscape(t *testing.T) {
+	val, _ := url.ParseQuery("bfire=john&bfcs=john&age=3")
+	bfcs := &BadFieldCommaSeperated{}
+	err := VerifiedAssign(val, bfcs)
+	switch err := err.(type) {
+	case *ValidateTagError:
+		// OK
+	case nil:
+		t.Fatalf("Error: comma seperated tag keys passed.\n")
+	default:
+		t.Fatalf("error occurred but not validatetagerror: %v\n", err)
+	}
+}
+
+// apparently this is OK.
+type FieldNoSpace struct {
+	Name string `validate:"bfns"regex:"^(john)"`
+}
+
+func TestFieldNoSpace(t *testing.T) {
+	val, _ := url.ParseQuery("breg=john&breg2=john&breg3=john&bfns=john&bfcs=john&age=3")
+	fns := &FieldNoSpace{}
+	err := VerifiedAssign(val, fns)
+	switch err := err.(type) {
+	case *ValidateTagError:
+		t.Fatalf("Error: single no space between keys did not pass %v.\n", err)
+	case nil:
+		// OK
+	default:
+		t.Fatalf("error occurred but not validatetagerror: %v\n", err)
 	}
 }
 
@@ -111,7 +276,7 @@ func TestUrls(t *testing.T) {
 }
 
 type RegexForm struct {
-	// be careful with invalid escapes in regexes! \s will fail and regex field will be ignored!
+	// be careful with invalid escapes in regexes! \s will fail
 	Name string `validate:"name,len(4:20)" regex:"^(john\\sdoe)$"`
 }
 
@@ -209,6 +374,22 @@ func TestRequired(t *testing.T) {
 	err := VerifiedAssign(params, st)
 	if err == nil {
 		t.Fatalf("error: age didn't exist in input and is required!\n")
+	}
+}
+
+type Floatsies struct {
+	Balance float32 `validate:"bal,range(0.00000003:0.000006)"`
+}
+
+func TestFloatsies(t *testing.T) {
+	params, _ := url.ParseQuery("bal=0.00000004")
+	st := &Floatsies{}
+	err := VerifiedAssign(params, st)
+	if err != nil {
+		t.Fatalf("error: float failed to parse even though it is valid: %v\n", err)
+	}
+	if st.Balance != 0.00000004 {
+		t.Fatalf("error: float value not properly reflected, got: %f\n", st.Balance)
 	}
 }
 

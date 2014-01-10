@@ -39,7 +39,7 @@ const (
 )
 
 type User struct {
-	// be careful with invalid escapes in regexes! \w will fail (\\w is correct) and regex field will be ignored!
+	// be careful with invalid escapes in regexes! \w will fail (\\w is correct)
 	Name     string `validate:"name" regex:"^[a-z]*$"`
 	Age      int    `validate:"age,optional"`
 	State    string `validate:"state,len(2:2)" regex:"^[A-Za-z]*$"`
@@ -80,8 +80,7 @@ func main() {
 ```
 
 ## gotchas
-Struct tags are very unforgiving, if you get any part of your struct tag definition incorrect, the value will most likely be ignored. What this means is you 'think' you will pass validation, but in reality your definition was incorrect so the validator could not run. Unfortunately, as far as I can tell there is no way to determine if there
-is an error in parsing struct tags so here are some examples to watch out for:
+Struct tags are very unforgiving, if you get any part of your struct tag definition incorrect, an error will be returned stating which field was incorrectly configured.
 ```Go
 type BadUser struct {
 	// BAD there is a space between regex: and the value
@@ -94,7 +93,7 @@ type GoodUser struct {
 }
 
 type BadRegexUser struct {
-	// BAD there the regex contains and incorrect escape sequence and the regex will be ignored!
+	// BAD there the regex contains and incorrect escape sequence
 	Name     string `validate:"name" regex:"^\w*$"`	
 }
 
@@ -123,11 +122,11 @@ type UnVerifiedFieldsUser struct {
 
 #### validate tag functions
 Currently only two validation functions exist:
-- len(min,max)  This will validate strings (or each individual slice of type string) is > minimum length and < maximum length.
+- len(min,max)  This will validate strings (or each individual slice of type string) is > minimum length and < maximum length. 
 - range(min,max) This will validate that Int, Uint and Floats fall with in a specified range. 
 
 ```Go
-// Example structure which takes the "name" parameter and validates it is &gt; 4 characters and &lt; 20 characters
+// Example structure which takes the "name" parameter and validates it is > 4 characters and < 20 characters
 // Age is 'optional' as in, if it doesn't exist in the original map as a key, we can safely disregard it. 
 // If it does exist, it will still be validated.
 // Balance will be assigned as a float provided it parses correctly into a float value. if not it will fail and
@@ -138,6 +137,43 @@ type PersonForm struct {
 	Balance float `validate:"balance,range(0,4000000.0)"`
 }
 ```
+
+#### custom functions
+You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling VerifiedAssign on the structure otherwise it won't exist and an error will be returned stating an unknown function is defined. Note that the value will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
+
+Example:
+```Go
+package main
+
+import (
+	"encoding/hex"
+	"github.com/wirepair/validator"
+	"log"
+	"net/url"
+)
+
+func hashCheck(hash string) error {
+	// dumb example that simply sees if decodes properly.
+	hashBytes := make([]byte, hex.DecodedLen(len(hash)))
+	if _, err := hex.Decode(hashBytes, []byte(hash)); err != nil {
+		return err
+	}
+	return nil
+}
+
+type HashForm struct {
+	Hash string `validate:"h,hash"` // takes "h" http param and validates it decodes as valid hex
+}
+
+func main() {
+	hashForm := &HashForm{}
+	validator.Add("hash", hashCheck)
+	formValues, _ := url.ParseQuery("h=d83582b40325d7a3d723f05307b7534a")
+	err := validator.VerifiedAssign(formValues, hashForm)
+	if err != nil {
+		log.Fatalf("Error occurred parsing hash: %v", err)
+	}
+}```
 
 #### regex tag functions
 Currently match (calls MatchString) are supported for strings (or each slice of a slice of strings).

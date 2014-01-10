@@ -21,6 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
 package validator
 
 import (
@@ -29,67 +30,114 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type ValidatorTypeError struct {
 	Func  string // description of function
-	Param string // the Parameter name
-	Type  string
+	Param string // the parameter name
+	Type  string // the value type
 }
 
+// Called when a function is defined for the wrong type of parameter value.
 func (e *ValidatorTypeError) Error() string {
 	return "validate: error " + e.Func + " function for " + e.Param + " is invalid for " + e.Type
 }
 
 type ValidatorFuncError struct {
-	Value string // description of value - "bool", "array", "number -5"
-	Type  string // the parameter name
-	Name  string // function name
+	Value string // the value being validated
+	Type  string // the type of the field
+	Name  string // function name of the validator
 }
 
 func (e *ValidatorFuncError) Error() string {
-	return "validate: error " + e.Value + " for " + e.Type + " is invalid value for " + e.Name
+	return "validate: error " + e.Value + " for " + e.Type + " invalid value for " + e.Name
 }
 
 type ValidationError struct {
-	Value string // description of Value - "bool", "array", "number -5"
+	Value string // the value being validated
 	Param string // the Parameter name
 }
 
+// Called when the input fails validation for the Validater.
 func (e *ValidationError) Error() string {
 	return "validate: error param " + e.Param + " failed validation with value " + e.Value
 }
 
+type ValidateTagError struct {
+	Tag   string // the tag key that failed (regex/validate)
+	Field string // the Field name that caused the tag validation error
+}
+
+// Returned when a tag for a field did not parse properly.
+func (e *ValidateTagError) Error() string {
+	return "validate: error " + e.Tag + " for " + e.Field + " was not set correctly."
+}
+
+// An interface which describes a Validater. The string is the parameter name from the input map, the interface{} is the value to validate.
 type Validater interface {
-	Validate(string, interface{}) error
+	Validate(string, interface{}) error // Returns error if validation fails.
 }
 
-type Validation struct {
-	Optional   bool
-	Param      string
-	Validaters []Validater
+// contains our function -> Validater mappings.
+type validatorFunctions struct {
+	sync.RWMutex
+	Funcs map[string]func(string) error
 }
 
-func NewValidation(tag map[string]string, typ reflect.Type) (*Validation, error) {
-	validation := &Validation{}
-	validation.Validaters = make([]Validater, 0)
+var userFns *validatorFunctions
 
-	for k, v := range tag {
-		if v == "" {
-			continue
+// Adds a new validater function type to allow custom validators to be used.
+// Simply pass in the function name as a key to use in the struct tag which
+// will be used to look up and execute the function when validation is set
+// to occur. Note you must call this prior to running validation on a struct
+// which uses the function.
+func Add(fn string, validateFn func(string) error) error {
+	if fn == "optional" || fn == "range" || fn == "len" {
+		return fmt.Errorf("validate: error supplied function %s matches built in name", fn)
+	}
+
+	if userFns == nil {
+		userFns = &validatorFunctions{}
+	}
+
+	if validateFn != nil {
+		userFns.Lock()
+		if userFns.Funcs == nil {
+			userFns.Funcs = map[string]func(string) error{}
 		}
-		switch k {
-		case "validate":
-			if err := parseValidate(v, validation, typ); err != nil {
-				return nil, err
-			}
-		case "regex":
-			if err := parseRegex(v, validation, typ); err != nil {
-				return nil, err
-			}
+		userFns.Funcs[fn] = validateFn
+		userFns.Unlock()
+	}
+	return nil
+}
+
+// setDirectives validates each field individually. Returns ValidateTagError if
+// we see the key in the tag as a string but fail to get the value with Get
+func setDirectives(t reflect.StructTag, f *field) error {
+	f.validators = make([]Validater, 0)
+
+	tag := string(t)
+
+	validate := t.Get("validate")
+	if validate == "" && strings.Contains(tag, "validate") {
+		return &ValidateTagError{Tag: "validate", Field: f.name}
+	} else {
+		if err := parseValidate(validate, f); err != nil {
+			return err
 		}
 	}
-	return validation, nil
+
+	regex := t.Get("regex")
+	if regex == "" && strings.Contains(tag, "regex") {
+		return &ValidateTagError{Tag: "regex", Field: f.name}
+	} else {
+		if err := parseRegex(regex, f); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 const (
@@ -97,11 +145,12 @@ const (
 	regexFind
 )
 
-func parseRegex(reg string, validation *Validation, typ reflect.Type) error {
+// parseRegex extracts the pattern from the regex key.
+func parseRegex(reg string, f *field) error {
 	// allow either matching or finding. default is MatchString, probably don't need find.
-	find := regexMatch
+	regexType := regexMatch
 	if strings.HasPrefix(reg, "find,") {
-		find = regexFind
+		regexType = regexFind
 		reg = reg[5:]
 	} else if strings.HasPrefix(reg, "match,") {
 		reg = reg[6:]
@@ -112,115 +161,140 @@ func parseRegex(reg string, validation *Validation, typ reflect.Type) error {
 		return err
 	}
 
-	validation.Validaters = append(validation.Validaters, &RegexValidate{MatchType: find, Pattern: pattern})
+	f.validators = append(f.validators, &regexValidate{MatchType: regexType, Pattern: pattern})
 	return nil
 }
 
-func parseValidate(values string, validation *Validation, typ reflect.Type) error {
+// parses the validate struct tag and sets the field parameter name, whether it is optional
+// and any Validator functions (including user supplied).
+func parseValidate(values string, f *field) error {
 	directives := strings.Split(values, ",")
 	if len(directives) <= 0 {
 		return nil
 	}
-	k := typ.Kind()
-	if k == reflect.Slice {
-		k = typ.Elem().Kind()
+
+	kind := f.typ.Kind()
+	if kind == reflect.Slice {
+		kind = f.typ.Elem().Kind()
 	}
-	validation.Param = directives[0]
+
+	f.param = directives[0] // first field is always the map key.
 	for i := 1; i < len(directives); i++ {
 		if directives[i] == "optional" {
-			validation.Optional = true
-		} else if strings.HasPrefix(directives[i], "range(") && strings.HasSuffix(directives[i], ")") {
-			if k == reflect.String {
-				return &ValidatorTypeError{Func: "range", Param: validation.Param, Type: typ.Kind().String()}
+			f.optional = true
+		} else if strings.HasPrefix(directives[i], "range") {
+			rangeValidator, err := newRangeValidator(directives[i], "range", f, kind)
+			if err != nil {
+				return err
 			}
 
-			if validator, err := newRangeValidator(directives[i], "range", typ); err != nil {
-				return err
-			} else {
-				validation.Validaters = append(validation.Validaters, validator)
-			}
-		} else if strings.HasPrefix(directives[i], "len(") && strings.HasSuffix(directives[i], ")") {
-			if k != reflect.String {
-				return &ValidatorTypeError{Func: "len", Param: validation.Param, Type: typ.Kind().String()}
-			}
+			f.validators = append(f.validators, rangeValidator)
 
-			if validator, err := newLenValidator(directives[i], "len", typ); err != nil {
+		} else if strings.HasPrefix(directives[i], "len") {
+			lenValidator, err := newLenValidator(directives[i], "len", f, kind)
+			if err != nil {
 				return err
-			} else {
-				validation.Validaters = append(validation.Validaters, validator)
 			}
+			f.validators = append(f.validators, lenValidator)
 		} else {
-			return fmt.Errorf("validate: error unknown validation function %s\n", directives[i])
+			// check custom user functions
+			if userFns != nil {
+				userFns.RLock()
+				if userFns.Funcs[directives[i]] != nil {
+					userValidator := &userValidate{validateFn: userFns.Funcs[directives[i]]}
+					f.validators = append(f.validators, userValidator)
+				}
+				userFns.RUnlock()
+			} else {
+				return fmt.Errorf("validate: error unknown validation function %s\n", directives[i])
+			}
 		}
 	}
 	return nil
 }
 
-func newLenValidator(input, fname string, typ reflect.Type) (Validater, error) {
+// newLenValidator validates the length of a string.
+func newLenValidator(input, fname string, f *field, kind reflect.Kind) (Validater, error) {
+	// len only works on strings.
+	if kind != reflect.String {
+		return nil, &ValidatorTypeError{Func: "len", Param: f.param, Type: kind.String()}
+	}
+
 	min, max, err := getArguments(input, fname)
 	if err != nil {
 		return nil, err
 	}
+
 	nmin, err := strconv.Atoi(min)
 	if err != nil {
-		return nil, &ValidatorFuncError{Value: min, Type: typ.Kind().String(), Name: fname}
+		return nil, &ValidatorFuncError{Value: min, Type: kind.String(), Name: fname}
 	}
 	nmax, err := strconv.Atoi(max)
 	if err != nil {
-		return nil, &ValidatorFuncError{Value: max, Type: typ.Kind().String(), Name: fname}
+		return nil, &ValidatorFuncError{Value: max, Type: kind.String(), Name: fname}
 	}
 	if nmax < nmin {
-		return nil, &ValidatorFuncError{Value: max + "<" + min, Type: typ.Kind().String(), Name: fname}
+		return nil, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: kind.String(), Name: fname}
 	}
 
-	return &LenValidate{Min: nmin, Max: nmax}, nil
+	return &lenValidate{Min: nmin, Max: nmax}, nil
 }
 
-func newRangeValidator(input, fname string, typ reflect.Type) (Validater, error) {
+// newRangeValidator validates that a numerical value falls with in the specified range.
+func newRangeValidator(input, fname string, f *field, kind reflect.Kind) (Validater, error) {
+	// can't do ranges on strings.
+	if kind == reflect.String {
+		return nil, &ValidatorTypeError{Func: "range", Param: f.param, Type: kind.String()}
+	}
 	min, max, err := getArguments(input, fname)
 	if err != nil {
 		return nil, err
 	}
-	// if we are a slice, get the underlying type.
-	t := typ.Kind()
-	if t == reflect.Slice {
-		t = typ.Elem().Kind()
-	}
-	switch t {
+
+	switch kind {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		nmin, nmax, errInt := intFuncArguments(min, max, fname)
 		if errInt != nil {
 			return nil, errInt
 		}
-		return &RangeIntValidate{Min: nmin, Max: nmax}, nil
+		return &rangeIntValidate{Min: nmin, Max: nmax}, nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		nmin, nmax, errUint := uintFuncArguments(min, max, fname)
 		if errUint != nil {
 			return nil, errUint
 		}
-		return &RangeUintValidate{Min: nmin, Max: nmax}, nil
+		return &rangeUintValidate{Min: nmin, Max: nmax}, nil
 	case reflect.Float32, reflect.Float64:
 		nmin, nmax, errFloat := floatFuncArguments(min, max, fname)
 		if errFloat != nil {
 			return nil, errFloat
 		}
-		return &RangeFloatValidate{Min: nmin, Max: nmax}, nil
+		return &rangeFloatValidate{Min: nmin, Max: nmax}, nil
 	default:
-		return nil, fmt.Errorf("validate: error %v is not a supported type for function %s.", t, fname)
+		return nil, fmt.Errorf("validate: error %s is not a supported type for function %s.", kind.String(), fname)
 	}
+}
+
+func getArguments(data, fname string) (string, string, error) {
+	r := data[strings.Index(data, "(")+1 : strings.Index(data, ")")]
+	vals := strings.Split(r, ":")
+	if len(vals) != 2 {
+		return "", "", fmt.Errorf("validate: invalid number of arguments to %s validator function", fname)
+	}
+	return vals[0], vals[1], nil
 }
 
 func intFuncArguments(min, max, fname string) (int64, int64, error) {
 	nmin, err := strconv.ParseInt(min, 10, 64)
 	if err != nil {
-		return -1, -1, &ValidatorFuncError{Value: min, Type: reflect.Int.String(), Name: fname}
+		return -1, -1, &ValidatorFuncError{Value: min, Type: "Int", Name: fname}
 	}
 	nmax, err := strconv.ParseInt(max, 10, 64)
 	if err != nil {
-		return -1, -1, &ValidatorFuncError{Value: max, Type: reflect.Int.String(), Name: fname}
+		return -1, -1, &ValidatorFuncError{Value: max, Type: "Int", Name: fname}
 	}
 	if nmax < nmin {
-		return -1, -1, &ValidatorFuncError{Value: max + "<" + min, Type: reflect.Int.String(), Name: fname}
+		return -1, -1, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: "Int", Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -228,16 +302,16 @@ func intFuncArguments(min, max, fname string) (int64, int64, error) {
 func uintFuncArguments(min, max, fname string) (uint64, uint64, error) {
 	nmin, err := strconv.ParseUint(min, 10, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: min, Type: reflect.Uint.String(), Name: fname}
+		return 0, 0, &ValidatorFuncError{Value: min, Type: "Uint", Name: fname}
 	}
 
 	nmax, err := strconv.ParseUint(max, 10, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: min, Type: reflect.Uint.String(), Name: fname}
+		return 0, 0, &ValidatorFuncError{Value: min, Type: "Uint", Name: fname}
 	}
 
 	if nmax < nmin {
-		return 0, 0, &ValidatorFuncError{Value: max + "<" + min, Type: reflect.Uint.String(), Name: fname}
+		return 0, 0, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: "Uint", Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -245,33 +319,24 @@ func uintFuncArguments(min, max, fname string) (uint64, uint64, error) {
 func floatFuncArguments(min, max, fname string) (float64, float64, error) {
 	nmin, err := strconv.ParseFloat(min, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: min, Type: reflect.Float64.String(), Name: fname}
+		return 0, 0, &ValidatorFuncError{Value: min, Type: "Float", Name: fname}
 	}
 	nmax, err := strconv.ParseFloat(max, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: max, Type: reflect.Float64.String(), Name: fname}
+		return 0, 0, &ValidatorFuncError{Value: max, Type: "Float", Name: fname}
 	}
 	if nmax < nmin {
-		return 0, 0, &ValidatorFuncError{Value: max + "<" + min, Type: reflect.Float64.String(), Name: fname}
+		return 0, 0, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: "Float", Name: fname}
 	}
 	return nmin, nmax, nil
 }
 
-func getArguments(data, fname string) (string, string, error) {
-	r := data[strings.Index(data, "(")+1 : strings.Index(data, ")")]
-	vals := strings.Split(r, ":")
-	if len(vals) != 2 {
-		return "", "", fmt.Errorf("validate: invalid number of arguments to %s validater function", fname)
-	}
-	return vals[0], vals[1], nil
-}
-
-type RangeIntValidate struct {
+type rangeIntValidate struct {
 	Min int64
 	Max int64
 }
 
-func (r *RangeIntValidate) Validate(param string, value interface{}) error {
+func (r *rangeIntValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.Int()
 	if val < r.Min || val > r.Max {
@@ -280,12 +345,12 @@ func (r *RangeIntValidate) Validate(param string, value interface{}) error {
 	return nil
 }
 
-type RangeUintValidate struct {
+type rangeUintValidate struct {
 	Min uint64
 	Max uint64
 }
 
-func (r *RangeUintValidate) Validate(param string, value interface{}) error {
+func (r *rangeUintValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.Uint()
 	if val < r.Min || val > r.Max {
@@ -294,26 +359,26 @@ func (r *RangeUintValidate) Validate(param string, value interface{}) error {
 	return nil
 }
 
-type RangeFloatValidate struct {
+type rangeFloatValidate struct {
 	Min float64
 	Max float64
 }
 
-func (r *RangeFloatValidate) Validate(param string, value interface{}) error {
+func (r *rangeFloatValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.Float()
 	if val < r.Min || val > r.Max {
-		return &ValidationError{Param: param, Value: strconv.FormatFloat(val, 'e', 5, 64)}
+		return &ValidationError{Param: param, Value: strconv.FormatFloat(val, 'e', 10, 64)}
 	}
 	return nil
 }
 
-type LenValidate struct {
+type lenValidate struct {
 	Min int
 	Max int
 }
 
-func (r *LenValidate) Validate(param string, value interface{}) error {
+func (r *lenValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.String()
 	l := len(val)
@@ -324,12 +389,12 @@ func (r *LenValidate) Validate(param string, value interface{}) error {
 	return nil
 }
 
-type RegexValidate struct {
+type regexValidate struct {
 	Pattern   *regexp.Regexp
 	MatchType int
 }
 
-func (r *RegexValidate) Validate(param string, value interface{}) error {
+func (r *regexValidate) Validate(param string, value interface{}) error {
 	v := reflect.ValueOf(value)
 	val := v.String()
 
@@ -345,4 +410,15 @@ func (r *RegexValidate) Validate(param string, value interface{}) error {
 	}
 
 	return nil
+}
+
+// for wrapping custom user functions.
+type userValidate struct {
+	validateFn func(string) error
+}
+
+// validates the input against a custom user function.
+func (u *userValidate) Validate(param string, value interface{}) error {
+	v := reflect.ValueOf(value)
+	return u.validateFn(v.String())
 }
