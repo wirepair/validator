@@ -173,7 +173,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error occurred parsing hash: %v", err)
 	}
-}```
+}
+```
 
 #### regex tag functions
 Currently match (calls MatchString) are supported for strings (or each slice of a slice of strings).
