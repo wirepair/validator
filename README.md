@@ -134,7 +134,7 @@ Currently only two validation functions exist:
 type PersonForm struct {
 	Name string `validate:"name,len(4:20)"`
 	Age int `validate:"age,range(0:120),optional"`
-	Balance float `validate:"balance,range(0,4000000.0)"`
+	Balance float `validate:"balance,range(0:4000000.0)"`
 }
 ```
 
