@@ -39,7 +39,7 @@ type FuncTypeError struct {
 	Type  string // the value type
 }
 
-// Called when a function is defined for the wrong type of parameter value.
+// Returned when a validation function is defined for the wrong type of parameter value. For example assigning a string field but using the range function (which is only valid for numerical values)
 func (e *FuncTypeError) Error() string {
 	return "validate: error " + e.Func + " function for " + e.Param + " is invalid for " + e.Type
 }
@@ -50,16 +50,17 @@ type FuncError struct {
 	Name  string // function name of the validator
 }
 
+// Returned when the arguments passed to the validation function are incorrect. For example: range(4:1) since min 4 > max 1.
 func (e *FuncError) Error() string {
-	return "validate: error " + e.Value + " for " + e.Type + " invalid value for " + e.Name
+	return "validate: error " + e.Value + " for " + e.Type + " invalid value for function " + e.Name
 }
 
 type ValidationError struct {
 	Value string // the value being validated
-	Param string // the Parameter name
+	Param string // the parameter name from the supplied map/form data
 }
 
-// Called when the input fails validation for the Validater.
+// Returned when the input fails validation for the Validater.
 func (e *ValidationError) Error() string {
 	return "validate: error param " + e.Param + " failed validation with value " + e.Value
 }
