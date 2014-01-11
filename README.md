@@ -139,7 +139,7 @@ type PersonForm struct {
 ```
 
 #### custom functions
-You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling VerifiedAssign on the structure otherwise it won't exist and an error will be returned stating an unknown function is defined. Note that the value will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
+You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling VerifiedAssign on the structure otherwise it won't exist and an error will be returned stating an unknown function is defined. The value to be validated will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
 
 Example:
 ```Go
@@ -177,7 +177,7 @@ func main() {
 ```
 
 #### regex tag functions
-Currently match (calls MatchString) are supported for strings (or each slice of a slice of strings).
+Currently match (calls MatchString) is supported for strings (or each slice of a slice of strings).
 ```Go
 // Example structure which takes the "name" parameter and validates it is > 4 characters and < 20 characters and
 // matches "john doe"
