@@ -25,7 +25,7 @@ const (
 		State: <input type="text" name="state" value="AZ"></input><br>
 		<input type="submit" value="Submit"></input>
 	</form>
-	</body>`
+	</body></html>`
 
 	userPage = `<html>
 	<head></head>
@@ -35,11 +35,10 @@ const (
 		State: {{.State}}<br>
 		Internal: {{.Internal}}<br>
 		Error: {{.Error}}<br>
-	</body>`
+	</body></html>`
 )
 
 type User struct {
-	// be careful with invalid escapes in regexes! \w will fail (\\w is correct)
 	Name     string `validate:"name" regex:"^[a-z]*$"`
 	Age      int    `validate:"age,optional"`
 	State    string `validate:"state,len(2:2)" regex:"^[A-Za-z]*$"`
@@ -59,7 +58,7 @@ func HttpFormHandler(w http.ResponseWriter, r *http.Request) {
 		user.Error = err.Error()
 	}
 	// Note you really shouldn't do this. If you get validation errors, throw it away and ask the user again.
-	user.Internal = "this is was ignored by VerifiedAssign..."
+	user.Internal = "this was ignored by VerifiedAssign..."
 	tmpl, err := template.New("user").Parse(userPage)
 
 	err = tmpl.Execute(w, user)
@@ -129,7 +128,7 @@ Currently only two validation functions exist:
 // Example structure which takes the "name" parameter and validates it is > 4 characters and < 20 characters
 // Age is 'optional' as in, if it doesn't exist in the original map as a key, we can safely disregard it. 
 // If it does exist, it will still be validated.
-// Balance will be assigned as a float provided it parses correctly into a float value. if not it will fail and
+// Balance will be assigned as a float provided it parses correctly into a float value. If not it will fail and
 // no values will be returned.
 type PersonForm struct {
 	Name string `validate:"name,len(4:20)"`
@@ -139,7 +138,7 @@ type PersonForm struct {
 ```
 
 #### custom functions
-You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling VerifiedAssign on the structure otherwise it won't exist and an error will be returned stating an unknown function is defined. The value to be validated will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
+You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling VerifiedAssign on the structure otherwise the key won't exist and an error will be returned stating an unknown function is defined. The value to be validated will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
 
 Example:
 ```Go
