@@ -54,11 +54,11 @@ func HttpFormHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := &User{}
-	if err := validator.VerifiedAssign(r.Form, user); err != nil {
+	if err := validator.Assign(r.Form, user); err != nil {
 		user.Error = err.Error()
 	}
 	// Note you really shouldn't do this. If you get validation errors, throw it away and ask the user again.
-	user.Internal = "this was ignored by VerifiedAssign..."
+	user.Internal = "this was ignored by Assign..."
 	tmpl, err := template.New("user").Parse(userPage)
 
 	err = tmpl.Execute(w, user)
@@ -138,7 +138,7 @@ type PersonForm struct {
 ```
 
 #### custom functions
-You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling VerifiedAssign on the structure otherwise the key won't exist and an error will be returned stating an unknown function is defined. The value to be validated will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
+You may define your own validators to be used by calling validator.Add(key, function). Note that this must occur prior to calling Assign on the structure otherwise the key won't exist and an error will be returned stating an unknown function is defined. The value to be validated will be passed as a string, so it is up to you to reflect it to the correct type. The validator must follow the format of: func userValidator(input string) error.
 
 Example:
 ```Go
@@ -168,7 +168,7 @@ func main() {
 	hashForm := &HashForm{}
 	validator.Add("hash", hashCheck)
 	formValues, _ := url.ParseQuery("h=d83582b40325d7a3d723f05307b7534a")
-	err := validator.VerifiedAssign(formValues, hashForm)
+	err := validator.Assign(formValues, hashForm)
 	if err != nil {
 		log.Fatalf("Error occurred parsing hash: %v", err)
 	}

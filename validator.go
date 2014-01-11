@@ -37,14 +37,14 @@ import (
 	"sync"
 )
 
-type ValidateTypeError struct {
+type TypeError struct {
 	Value string       // description of value that caused the error
 	Param string       // the parameter name
 	Type  reflect.Type // type of Go value it could not be assigned to
 }
 
 // Returned when validator is unable to get the proper type from the supplied map of parameters and values.
-func (e *ValidateTypeError) Error() string {
+func (e *TypeError) Error() string {
 	return "validate: error parsing parameter " + e.Param + " with value " + e.Value + " into Go value of type " + e.Type.String()
 }
 
@@ -65,9 +65,9 @@ type cache struct {
 
 var fieldCache cache // for caching field look ups.
 
-// VerifiedAssign iterates over input map keys and assigns the value to the passed in structure (v),
+// Assign iterates over input map keys and assigns the value to the passed in structure (v),
 // alternatively validating the input.
-func VerifiedAssign(params map[string][]string, v interface{}) error {
+func Assign(params map[string][]string, v interface{}) error {
 	fields, err := getFields(v)
 	if err != nil {
 		return err
@@ -183,7 +183,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n, err := strconv.ParseInt(s, 10, 64)
 		if err != nil || settable.OverflowInt(n) {
-			return &ValidateTypeError{f.param, s, settable.Type()}
+			return &TypeError{f.param, s, settable.Type()}
 		}
 
 		for _, validater := range f.validators {
@@ -195,7 +195,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		n, err := strconv.ParseUint(s, 10, 64)
 		if err != nil || settable.OverflowUint(n) {
-			return &ValidateTypeError{f.param, s, settable.Type()}
+			return &TypeError{f.param, s, settable.Type()}
 		}
 		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {
@@ -206,7 +206,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 	case reflect.Float32, reflect.Float64:
 		n, err := strconv.ParseFloat(s, settable.Type().Bits())
 		if err != nil || settable.OverflowFloat(n) {
-			return &ValidateTypeError{f.param, s, settable.Type()}
+			return &TypeError{f.param, s, settable.Type()}
 		}
 		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {
@@ -217,7 +217,7 @@ func verifiedAssign(s string, f *field, settable reflect.Value) error {
 	case reflect.Bool:
 		n, err := strconv.ParseBool(s)
 		if err != nil {
-			return &ValidateTypeError{f.param, s, settable.Type()}
+			return &TypeError{f.param, s, settable.Type()}
 		}
 		for _, validater := range f.validators {
 			if err := validater.Validate(f.param, n); err != nil {

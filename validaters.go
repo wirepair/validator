@@ -33,24 +33,24 @@ import (
 	"sync"
 )
 
-type ValidatorTypeError struct {
+type FuncTypeError struct {
 	Func  string // description of function
 	Param string // the parameter name
 	Type  string // the value type
 }
 
 // Called when a function is defined for the wrong type of parameter value.
-func (e *ValidatorTypeError) Error() string {
+func (e *FuncTypeError) Error() string {
 	return "validate: error " + e.Func + " function for " + e.Param + " is invalid for " + e.Type
 }
 
-type ValidatorFuncError struct {
+type FuncError struct {
 	Value string // the value being validated
 	Type  string // the type of the field
 	Name  string // function name of the validator
 }
 
-func (e *ValidatorFuncError) Error() string {
+func (e *FuncError) Error() string {
 	return "validate: error " + e.Value + " for " + e.Type + " invalid value for " + e.Name
 }
 
@@ -64,13 +64,13 @@ func (e *ValidationError) Error() string {
 	return "validate: error param " + e.Param + " failed validation with value " + e.Value
 }
 
-type ValidateTagError struct {
+type TagError struct {
 	Tag   string // the tag key that failed (regex/validate)
 	Field string // the Field name that caused the tag validation error
 }
 
 // Returned when a tag for a field did not parse properly.
-func (e *ValidateTagError) Error() string {
+func (e *TagError) Error() string {
 	return "validate: error " + e.Tag + " for " + e.Field + " was not set correctly."
 }
 
@@ -112,7 +112,7 @@ func Add(fn string, validateFn func(string) error) error {
 	return nil
 }
 
-// setDirectives validates each field individually. Returns ValidateTagError if
+// setDirectives validates each field individually. Returns TagError if
 // we see the key in the tag as a string but fail to get the value with Get
 func setDirectives(t reflect.StructTag, f *field) error {
 	f.validators = make([]Validater, 0)
@@ -121,7 +121,7 @@ func setDirectives(t reflect.StructTag, f *field) error {
 
 	validate := t.Get("validate")
 	if validate == "" && strings.Contains(tag, "validate") {
-		return &ValidateTagError{Tag: "validate", Field: f.name}
+		return &TagError{Tag: "validate", Field: f.name}
 	} else {
 		if err := parseValidate(validate, f); err != nil {
 			return err
@@ -130,7 +130,7 @@ func setDirectives(t reflect.StructTag, f *field) error {
 
 	regex := t.Get("regex")
 	if regex == "" && strings.Contains(tag, "regex") {
-		return &ValidateTagError{Tag: "regex", Field: f.name}
+		return &TagError{Tag: "regex", Field: f.name}
 	} else {
 		if err := parseRegex(regex, f); err != nil {
 			return err
@@ -217,7 +217,7 @@ func parseValidate(values string, f *field) error {
 func newLenValidator(input, fname string, f *field, kind reflect.Kind) (Validater, error) {
 	// len only works on strings.
 	if kind != reflect.String {
-		return nil, &ValidatorTypeError{Func: "len", Param: f.param, Type: kind.String()}
+		return nil, &FuncTypeError{Func: "len", Param: f.param, Type: kind.String()}
 	}
 
 	min, max, err := getArguments(input, fname)
@@ -227,14 +227,14 @@ func newLenValidator(input, fname string, f *field, kind reflect.Kind) (Validate
 
 	nmin, err := strconv.Atoi(min)
 	if err != nil {
-		return nil, &ValidatorFuncError{Value: min, Type: kind.String(), Name: fname}
+		return nil, &FuncError{Value: min, Type: kind.String(), Name: fname}
 	}
 	nmax, err := strconv.Atoi(max)
 	if err != nil {
-		return nil, &ValidatorFuncError{Value: max, Type: kind.String(), Name: fname}
+		return nil, &FuncError{Value: max, Type: kind.String(), Name: fname}
 	}
 	if nmax < nmin {
-		return nil, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: kind.String(), Name: fname}
+		return nil, &FuncError{Value: "max " + max + " < " + min + " min", Type: kind.String(), Name: fname}
 	}
 
 	return &lenValidate{Min: nmin, Max: nmax}, nil
@@ -244,7 +244,7 @@ func newLenValidator(input, fname string, f *field, kind reflect.Kind) (Validate
 func newRangeValidator(input, fname string, f *field, kind reflect.Kind) (Validater, error) {
 	// can't do ranges on strings.
 	if kind == reflect.String {
-		return nil, &ValidatorTypeError{Func: "range", Param: f.param, Type: kind.String()}
+		return nil, &FuncTypeError{Func: "range", Param: f.param, Type: kind.String()}
 	}
 	min, max, err := getArguments(input, fname)
 	if err != nil {
@@ -287,14 +287,14 @@ func getArguments(data, fname string) (string, string, error) {
 func intFuncArguments(min, max, fname string) (int64, int64, error) {
 	nmin, err := strconv.ParseInt(min, 10, 64)
 	if err != nil {
-		return -1, -1, &ValidatorFuncError{Value: min, Type: "Int", Name: fname}
+		return -1, -1, &FuncError{Value: min, Type: "Int", Name: fname}
 	}
 	nmax, err := strconv.ParseInt(max, 10, 64)
 	if err != nil {
-		return -1, -1, &ValidatorFuncError{Value: max, Type: "Int", Name: fname}
+		return -1, -1, &FuncError{Value: max, Type: "Int", Name: fname}
 	}
 	if nmax < nmin {
-		return -1, -1, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: "Int", Name: fname}
+		return -1, -1, &FuncError{Value: "max " + max + " < " + min + " min", Type: "Int", Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -302,16 +302,16 @@ func intFuncArguments(min, max, fname string) (int64, int64, error) {
 func uintFuncArguments(min, max, fname string) (uint64, uint64, error) {
 	nmin, err := strconv.ParseUint(min, 10, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: min, Type: "Uint", Name: fname}
+		return 0, 0, &FuncError{Value: min, Type: "Uint", Name: fname}
 	}
 
 	nmax, err := strconv.ParseUint(max, 10, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: min, Type: "Uint", Name: fname}
+		return 0, 0, &FuncError{Value: min, Type: "Uint", Name: fname}
 	}
 
 	if nmax < nmin {
-		return 0, 0, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: "Uint", Name: fname}
+		return 0, 0, &FuncError{Value: "max " + max + " < " + min + " min", Type: "Uint", Name: fname}
 	}
 	return nmin, nmax, nil
 }
@@ -319,14 +319,14 @@ func uintFuncArguments(min, max, fname string) (uint64, uint64, error) {
 func floatFuncArguments(min, max, fname string) (float64, float64, error) {
 	nmin, err := strconv.ParseFloat(min, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: min, Type: "Float", Name: fname}
+		return 0, 0, &FuncError{Value: min, Type: "Float", Name: fname}
 	}
 	nmax, err := strconv.ParseFloat(max, 64)
 	if err != nil {
-		return 0, 0, &ValidatorFuncError{Value: max, Type: "Float", Name: fname}
+		return 0, 0, &FuncError{Value: max, Type: "Float", Name: fname}
 	}
 	if nmax < nmin {
-		return 0, 0, &ValidatorFuncError{Value: "max " + max + " < " + min + " min", Type: "Float", Name: fname}
+		return 0, 0, &FuncError{Value: "max " + max + " < " + min + " min", Type: "Float", Name: fname}
 	}
 	return nmin, nmax, nil
 }
