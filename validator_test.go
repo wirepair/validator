@@ -58,7 +58,7 @@ func TestCustomFunctions(t *testing.T) {
 
 type SomeForm struct {
 	// by default fields are required, to make optional use optional directive.
-	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 255 chars
+	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 5 chars
 	Age  int    `validate:"age,range(1:10)"` // takes "age" http param and validates it's value is between 1 and 10.
 }
 
@@ -191,7 +191,7 @@ func TestFieldNoSpace(t *testing.T) {
 
 type CachedForm struct {
 	// by default fields are required, to make optional use optional directive.
-	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 255 chars
+	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 5 chars
 	Age  int    `validate:"age,range(1:10)"` // takes "age" http param and validates it's value is between 1 and 10.
 
 	//Birth string `validate:"birth,,optional"` // not required.
@@ -199,7 +199,7 @@ type CachedForm struct {
 
 type CachedForm2 struct {
 	// by default fields are required, to make optional use optional directive.
-	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 255 chars
+	Name string `validate:"name,len(0:5)"`   // takes "name" http param and validates it's < 5 chars
 	Age  int    `validate:"age,range(2:10)"` // takes "age" http param and validates it's value is between 1 and 10.
 
 	//Birth string `validate:"birth,,optional"` // not required.
