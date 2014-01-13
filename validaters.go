@@ -72,7 +72,7 @@ type TagError struct {
 
 // Returned when a tag for a field did not parse properly.
 func (e *TagError) Error() string {
-	return "validate: error " + e.Tag + " for " + e.Field + " was not set correctly."
+	return "validate: error validate tag " + e.Tag + " for " + e.Field + " was not set correctly."
 }
 
 // An interface which describes a Validater. The string is the parameter name from the input map, the interface{} is the value to validate.
