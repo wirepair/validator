@@ -393,6 +393,39 @@ func TestFloatsies(t *testing.T) {
 	}
 }
 
+func TestAssignSingle(t *testing.T) {
+	params := map[string]string{}
+	params["name"] = "john"
+	params["age"] = "31"
+	params["state"] = "MA"
+	st := &RequiredUser{}
+	err := AssignSingle(params, st)
+	if err != nil {
+		t.Fatalf("error: failed to parse even though it is valid: %v\n", err)
+	}
+
+	if st.Name != "john" {
+		t.Fatalf("error: , got: %f\n", st.Name)
+	}
+
+	// test required age missing
+	params = map[string]string{}
+	params["name"] = "john"
+	params["state"] = "MA"
+	st = &RequiredUser{}
+	err = AssignSingle(params, st)
+	if err == nil {
+		t.Fatalf("error: missing a required statement passed validation.\n")
+	}
+
+	switch err := err.(type) {
+	case *RequiredParamError:
+		//  OK!
+	default:
+		t.Fatalf("Error: got a different error back! %v\n", err)
+	}
+}
+
 //HELPERS
 func makeSimpleMap() map[string][]string {
 	val := make(map[string][]string, 2)

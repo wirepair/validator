@@ -1,5 +1,5 @@
 # validator 
-This library is for automatically assigning HTTP form values or a map[string][]string to a pre-defined structure. It also allows you to validate the data prior to allowing assignment to occur. It fails hard, if any field is found to fail validation, an error is immediately returned. 
+This library is for automatically assigning HTTP form values, a map[string][]string or a map[string] string to a pre-defined structure. It also allows you to validate the data prior to allowing assignment. It fails hard, if any field is found to fail validation, an error is immediately returned and no further processing occurs. 
 
 ### installation
 go get github.com/wirepair/validator

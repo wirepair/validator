@@ -22,11 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-// This library is for automatically assigning HTTP form values or a map[string][]string
-// to a pre-defined structure. It also allows you to validate the data prior to allowing
-// assignment to occur. If any field is found to fail validation, an error is immediately
-// returned and further processing is stopped. Additionally, you may supply your own
-// functions by calling Add. For more information and examples see:
+// This library is for automatically assigning HTTP form values, a map[string][]string or
+// a map[string]string to a pre-defined structure. It also allows you to validate the data
+// prior to allowing assignment to occur. If any field is found to fail validation, an
+// error is immediately returned and further processing is stopped. Additionally, you may
+// supply your own functions by calling Add. For more information and examples see:
+//
 // https://github.com/wirepair/validator/
 package validator
 
@@ -46,6 +47,26 @@ type TypeError struct {
 // Returned when validator is unable to get the proper type from the supplied map of parameters and values.
 func (e *TypeError) Error() string {
 	return "validate: error parsing parameter " + e.Param + " with value " + e.Value + " into Go value of type " + e.Type.String()
+}
+
+type RequiredParamError struct {
+	Param string // the parameter that is required
+	Field string // the field name
+}
+
+// Returned when validator is unable to find a required parameter.
+func (r *RequiredParamError) Error() string {
+	return "validate: error the required parameter " + r.Param + " is missing from the input for assignment to " + r.Field
+}
+
+type CantSetError struct {
+	Param string       // the parameter that is being attempted to be set
+	Type  reflect.Type // the type of the field.
+}
+
+// Returned when validator is unable to set the type
+func (c *CantSetError) Error() string {
+	return "validate: error attempting to set " + c.Param + " with the Go value of type " + c.Type.String()
 }
 
 type field struct {
@@ -74,6 +95,16 @@ func Assign(params map[string][]string, v interface{}) error {
 	}
 
 	return assign(params, fields, v)
+}
+
+// AssignSingle iterates over input map keys with single string values and assigns it to the
+// passed in structure (v), alternatively validating the input.
+func AssignSingle(params map[string]string, v interface{}) error {
+	fields, err := getFields(v)
+	if err != nil {
+		return err
+	}
+	return assignSingle(params, fields, v)
 }
 
 // iterates over each field of the structure and assigns various directives on how to
@@ -120,6 +151,28 @@ func getFields(v interface{}) ([]field, error) {
 	return fields, nil
 }
 
+// assignSingle iterates through fields and makes sure it's settable and calls assignField
+func assignSingle(params map[string]string, fields []field, v interface{}) (err error) {
+	st := reflect.ValueOf(v).Elem()
+
+	for _, f := range fields {
+		// skip parameters which don't have validate markup
+		if f.param == "" {
+			continue
+		}
+		settable := st.Field(f.index)
+		if !settable.CanSet() {
+			return &CantSetError{Param: f.param, Type: settable.Type()}
+		}
+
+		value := params[f.param]
+		if err := assignField(value, &f, settable); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // assign validates fields are settable, parameters aren't empty and that fields set
 // as optional are validated (unless empty, then disregarded).
 func assign(params map[string][]string, fields []field, v interface{}) (err error) {
@@ -130,35 +183,48 @@ func assign(params map[string][]string, fields []field, v interface{}) (err erro
 		if f.param == "" {
 			continue
 		}
-		settable := st.Field(f.index)
-		if !settable.CanSet() {
-			return fmt.Errorf("validate: error struct field %s is not settable\n", f.name)
-		}
-
 		values := params[f.param]
 		size := len(values)
-
-		// check if the parameter is required or not.
 		if size == 0 && f.optional == false {
-			return fmt.Errorf("validate: error parameter %s does not exist in input.\n", f.param)
+			return &RequiredParamError{Param: f.param, Field: f.name}
 		} else if (size == 0 || size == 1 && values[0] == "") && f.optional == true {
 			continue
 		}
 
+		settable := st.Field(f.index)
+		if !settable.CanSet() {
+			return &CantSetError{Param: f.param, Type: settable.Type()}
+		}
+
 		if settable.Kind() == reflect.Slice {
-			//fmt.Printf("Making slice\n")
-			settable.Set(reflect.MakeSlice(reflect.SliceOf(settable.Type().Elem()), size, size))
-			for i, v := range values {
-				if err := verifiedAssign(v, &f, settable.Index(i)); err != nil {
-					return err
-				}
-			}
+			err = assignSlice(values, size, &f, settable)
 		} else {
 			// only take the first verify & assign value.
-			err = verifiedAssign(values[0], &f, settable)
+			err = assignField(values[0], &f, settable)
 		}
 		// we got an error assigning a type or array, error out.
 		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// assignField checks if the field is required, returns an error if it is but missing
+// or calls verifiedAssign to continue processing.
+func assignField(value string, f *field, settable reflect.Value) error {
+	if value == "" && f.optional == false {
+		return &RequiredParamError{Param: f.param, Field: f.name}
+	} else if value == "" && f.optional == true {
+		return nil
+	}
+	return verifiedAssign(value, f, settable)
+}
+
+func assignSlice(values []string, size int, f *field, settable reflect.Value) error {
+	settable.Set(reflect.MakeSlice(reflect.SliceOf(settable.Type().Elem()), size, size))
+	for i, val := range values {
+		if err := verifiedAssign(val, f, settable.Index(i)); err != nil {
 			return err
 		}
 	}
@@ -170,7 +236,6 @@ func assign(params map[string][]string, fields []field, v interface{}) (err erro
 // provided they do, the value will be assigned to the structure.
 // NOTE: we also check for numerical overflows.
 func verifiedAssign(s string, f *field, settable reflect.Value) error {
-
 	switch settable.Kind() {
 	case reflect.String:
 		//fmt.Printf("In string case validators len: %d\n", len(f.validation.Validaters))
